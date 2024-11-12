@@ -95,7 +95,9 @@ void loop() {
   getBreathVal();
   Serial.println(getNote());
   playNote();
-  controlCC();
+  if (millis() % 1000 == 0) {
+    controlCC();
+  }
 }
 
 void getBreathVal() {
