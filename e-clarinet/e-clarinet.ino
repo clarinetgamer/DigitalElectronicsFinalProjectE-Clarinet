@@ -1,5 +1,12 @@
-int buttonPins[24] = { 23, 22, 20, 21, 19, 18, 17, 40, 39, 38, 33, 34, 36, 35, 37, 41, 32, 31, 30, 29, 28, 27, 25, 26 };
-int concertVsBbSwitch = 13;
+#include <Wire.h>
+#include "Adafruit_MPRLS.h"
+
+// You dont *need* a reset and EOC pin for most uses, so we set to -1 and don't connect
+#define RESET_PIN -1  // set to any GPIO pin # to hard-reset on begin()
+#define EOC_PIN -1    // set to any GPIO pin to read end-of-conversion by pin
+Adafruit_MPRLS mpr = Adafruit_MPRLS(RESET_PIN, EOC_PIN);
+
+int buttonPins[24] = { 23, 22, 20, 21, 16, 15, 14, 40, 39, 38, 33, 34, 36, 35, 37, 41, 32, 31, 30, 29, 28, 27, 25, 26 };
 bool activeFingering[24] = { false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false };
 //temp input velocity is A2
 //{registerKey,thumbKey,leftSideKey,aKey,oneKey,twoKey,bananaTopKey,threeKey,cSharpKey,leftPinkyExt1,leftPinkyExt2,leftPinkyExt3,sideKey1,sideKey2,sideKey3,sideKey4,fourKey,fiveKey,bananaLowKey,sixKey,ebKey,rightPinky1,rightPinky2,rightPinky3}
@@ -81,42 +88,54 @@ int notes[74] = { 64, 64, 64, 65, 65, 66, 66, 66, 67, 68, 69, 70, 71, 71, 72, 73
 int currentNote = 67;
 int prevNote = 67;
 int breathVal = 0;
+float firstBreath;
+float pressureMax;
 
 void setup() {
   for (int i = 0; i < 24; i++) {
     pinMode(buttonPins[i], INPUT);
   }
-  pinMode(concertVsBbSwitch, INPUT);
   Serial.begin(9600);
+  if (!mpr.begin()) {
+    Serial.println("Failed to communicate with MPRLS sensor, check wiring?");
+    while (1) {
+      delay(10);
+    }
+  }
+  delay(1000);
+  firstBreath = mpr.readPressure();
+  pressureMax = firstBreath + 22;
 }
 
 void loop() {
   createFingerArray();
-  getBreathVal();
-  Serial.println(getNote());
   playNote();
-  if (millis() % 1000 == 0) {
+  Serial.println(getNote());
+  getBreathVal();
+  if (millis() % 50 == 0) {
     controlCC();
   }
 }
 
 void getBreathVal() {
-  breathVal = map(analogRead(A2), 0, 1023, 0, 127);
+  float pressure = mpr.readPressure();
+
+  int total = 0;
+  int breath;
+  for (int i = 0; i < 1000; i++) {
+    breath = map(pressure, firstBreath, pressureMax, 0, 127);
+    total += constrain(breath, 0, 127);
+  }
+  breathVal = total / 1000;
 }
 
 void controlCC() {
-  usbMIDI.sendControlChange(7, breathVal, 1);   //Volume
-  usbMIDI.sendControlChange(2, breathVal, 1);   //Breath
-  usbMIDI.sendControlChange(11, breathVal, 1);  //Expression
+  usbMIDI.sendControlChange(7, breathVal, 1);  //Volume
 }
 
 void playNote() {
   prevNote = currentNote;
-  if (digitalRead(concertVsBbSwitch) == HIGH) {
-    currentNote = getNote();  //concert
-  } else {
-    currentNote = getNote() - 2;  //Bb
-  }
+  currentNote = getNote();
   if (currentNote != prevNote) {
     usbMIDI.sendNoteOff(prevNote, 127, 1);
     usbMIDI.sendNoteOn(currentNote, 127, 1);
@@ -139,9 +158,9 @@ int getNote() {
         continue;
       }
       if (j == 23 and boolean == true) {
-        return notes[i];
+        return notes[i]-2;
       }
     }
   }
-  return 67;  //open G if fingering doesn't exist
+  return 77;  //open G if fingering doesn't exist
 }
